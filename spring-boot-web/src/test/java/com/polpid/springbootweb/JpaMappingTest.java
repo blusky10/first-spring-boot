@@ -45,8 +45,8 @@ public class JpaMappingTest {
                 .subTitle("SubTitle")
                 .content("contents")
                 .boardType(BoardType.free)
-                .createDate(LocalDateTime.now())
-                .updateDate(LocalDateTime.now())
+                .createdDate(LocalDateTime.now())
+                .updatedDate(LocalDateTime.now())
                 .user(user)
                 .build()
         );
