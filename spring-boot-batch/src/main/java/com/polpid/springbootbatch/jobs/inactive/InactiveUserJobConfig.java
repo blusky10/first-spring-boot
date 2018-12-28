@@ -21,6 +21,8 @@ import org.springframework.batch.item.support.ListItemReader;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.task.SimpleAsyncTaskExecutor;
+import org.springframework.core.task.TaskExecutor;
 
 import javax.persistence.EntityManagerFactory;
 import java.time.LocalDateTime;
@@ -29,6 +31,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
 
 @AllArgsConstructor
 @Configuration
@@ -65,18 +68,39 @@ public class InactiveUserJobConfig {
                 .end();
     }
 
+    @Bean
+    public Flow multiFlow(Step inactiveJobStep){
+        Flow flows[] = new Flow[5];
+
+        IntStream.range(0, flows.length).forEach(
+                i->flows[i] = new FlowBuilder<Flow>("MultiFlow" + i).from(inactiveJobFlow(inactiveJobStep)).end());
+
+        FlowBuilder<Flow> flowBuilder = new FlowBuilder<>("MultiFlowTest");
+        return flowBuilder.split(taskExecutor())
+                .add(flows)
+                .build();
+    }
+
 
     @Bean
     public Step inactiveJobStep(StepBuilderFactory stepBuilderFactory,
                                 ListItemReader<User> listInactiveUserReader,
-                                InactiveStepListener inactiveStepListener){
+                                InactiveStepListener inactiveStepListener,
+                                TaskExecutor taskExecutor){
         return stepBuilderFactory.get("inactiveUserStep")
                 .<User, User>chunk(CHUNK_SIZE)
                 .reader(listInactiveUserReader)
                 .processor(inactiveUserProcessor())
                 .writer(inactiveUserWriter())
                 .listener(inactiveStepListener)
+                .taskExecutor(taskExecutor)
+                .throttleLimit(2)
                 .build();
+    }
+
+    @Bean
+    public TaskExecutor taskExecutor(){
+        return new SimpleAsyncTaskExecutor("Batch Task");
     }
 //
 //
