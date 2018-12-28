@@ -3,6 +3,7 @@ package com.polpid.springbootbatch.jobs.inactive;
 import com.polpid.springbootbatch.domain.User;
 import com.polpid.springbootbatch.domain.enums.UserStatus;
 import com.polpid.springbootbatch.jobs.inactive.listener.InactiveJobListener;
+import com.polpid.springbootbatch.jobs.inactive.listener.InactiveStepListener;
 import com.polpid.springbootbatch.repository.UserRepository;
 import lombok.AllArgsConstructor;
 import org.springframework.batch.core.Job;
@@ -10,6 +11,9 @@ import org.springframework.batch.core.Step;
 import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepScope;
+import org.springframework.batch.core.job.builder.FlowBuilder;
+import org.springframework.batch.core.job.flow.Flow;
+import org.springframework.batch.core.job.flow.FlowExecutionStatus;
 import org.springframework.batch.item.ItemProcessor;
 import org.springframework.batch.item.database.JpaItemWriter;
 import org.springframework.batch.item.database.JpaPagingItemReader;
@@ -34,26 +38,44 @@ public class InactiveUserJobConfig {
 
     private final EntityManagerFactory entityManagerFactory;
 
-    private UserRepository userRepository;
 
     @Bean
     public Job inactiveUserJob(JobBuilderFactory jobBuilderFactory,
                                InactiveJobListener inactiveJobListener,
-                               Step inactiveJobStep){
+                               Step inactiveJobStep,
+                               Flow inactiveJobFlow){
         return jobBuilderFactory.get("inactiveUserJob")
                 .preventRestart()
                 .listener(inactiveJobListener)
-                .start(inactiveJobStep)
+                .start(inactiveJobFlow)
+                .end()
+
                 .build();
     }
 
     @Bean
-    public Step inactiveJobStep(StepBuilderFactory stepBuilderFactory, ListItemReader<User> inactiveUserReaderWithParams){
+    public Flow inactiveJobFlow(Step inactiveJobStep){
+        FlowBuilder<Flow> flowBuilder = new FlowBuilder<>("inactiveJobFlow");
+
+        return flowBuilder
+                .start(new InactiveJobExecutionDecider())
+                .on(FlowExecutionStatus.FAILED.getName())
+                .end()
+                .on(FlowExecutionStatus.COMPLETED.getName()).to(inactiveJobStep)
+                .end();
+    }
+
+
+    @Bean
+    public Step inactiveJobStep(StepBuilderFactory stepBuilderFactory,
+                                ListItemReader<User> listInactiveUserReader,
+                                InactiveStepListener inactiveStepListener){
         return stepBuilderFactory.get("inactiveUserStep")
                 .<User, User>chunk(CHUNK_SIZE)
-                .reader(inactiveUserReaderWithParams)
+                .reader(listInactiveUserReader)
                 .processor(inactiveUserProcessor())
                 .writer(inactiveUserWriter())
+                .listener(inactiveStepListener)
                 .build();
     }
 //
@@ -65,23 +87,23 @@ public class InactiveUserJobConfig {
 //        return new QueueItemReader<>(oldUsers);
 //    }
 //
-//    @Bean
-//    @StepScope
-//    public ListItemReader<User> listInactiveUserReader(){
-//        List<User> oldUsers = userRepository.findByUpdatedDateBeforeAndStatusEquals(LocalDateTime.now().minusYears(1), UserStatus.ACTIVE);
-//
-//        return new ListItemReader<>(oldUsers);
-//    }
-
     @Bean
     @StepScope
-    public ListItemReader<User> inactiveUserReaderWithParams(@Value("#{jobParameters[nowDate]}") Date nowDate){
-
-        LocalDateTime now = LocalDateTime.ofInstant(nowDate.toInstant(), ZoneId.systemDefault());
-        List<User> oldUsers = userRepository.findByUpdatedDateBeforeAndStatusEquals(now.minusYears(1), UserStatus.ACTIVE);
+    public ListItemReader<User> listInactiveUserReader(UserRepository userRepository){
+        List<User> oldUsers = userRepository.findByUpdatedDateBeforeAndStatusEquals(LocalDateTime.now().minusYears(1), UserStatus.ACTIVE);
 
         return new ListItemReader<>(oldUsers);
     }
+
+//    @Bean
+//    @StepScope
+//    public ListItemReader<User> inactiveUserReaderWithParams(@Value("#{jobParameters[nowDate]}") Date nowDate, UserRepository userRepository){
+//
+//        LocalDateTime now = LocalDateTime.ofInstant(nowDate.toInstant(), ZoneId.systemDefault());
+//        List<User> oldUsers = userRepository.findByUpdatedDateBeforeAndStatusEquals(now.minusYears(1), UserStatus.ACTIVE);
+//
+//        return new ListItemReader<>(oldUsers);
+//    }
 //
 //    @Bean(destroyMethod="")
 //    @StepScope
